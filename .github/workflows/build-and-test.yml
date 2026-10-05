@@ -5,7 +5,7 @@ on:
   pull_request:
     branches: [ master, main ]
   push:
-    branches: [ master, main ]
+    branches: [ master, main, rc2-test ]
 
 jobs:
   build-and-test:
