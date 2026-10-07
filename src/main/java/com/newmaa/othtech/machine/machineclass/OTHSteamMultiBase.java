@@ -37,6 +37,7 @@ import gregtech.api.interfaces.tileentity.IGregTechTileEntity;
 import gregtech.api.interfaces.tileentity.IOverclockDescriptionProvider;
 import gregtech.api.logic.ProcessingLogic;
 import gregtech.api.metatileentity.implementations.MTEBasicMachine;
+import gregtech.api.metatileentity.implementations.MTEHatch;
 import gregtech.api.metatileentity.implementations.MTEHatchInput;
 import gregtech.api.metatileentity.implementations.MTEHatchInputBus;
 import gregtech.api.objects.overclockdescriber.OverclockDescriber;
@@ -181,10 +182,77 @@ public abstract class OTHSteamMultiBase<T extends OTHSteamMultiBase<T>> extends 
         return true;
     }
 
+    /**
+     * GTNH 2.9 split steam hatch registration out of the generic multiblock hatch path.
+     * Keep the same bookkeeping as MTESteamMultiBlockBase so custom steam hatches are
+     * actually visible to recipe/steam-consumption logic.
+     */
+    public <E> boolean addToMachineListInternal(ArrayList<E> aList, final E aTileEntity, final int aBaseCasingIndex) {
+        if (aTileEntity == null) return false;
+
+        if (aTileEntity instanceof MTEHatch mteHatch) {
+            mteHatch.updateTexture(aBaseCasingIndex);
+            mteHatch.updateCraftingIcon(this.getMachineCraftingIcon());
+        }
+
+        if (aTileEntity instanceof MTEHatchInput hatch) hatch.mRecipeMap = getRecipeMap();
+        if (aTileEntity instanceof MTEHatchInputBus hatch) hatch.mRecipeMap = getRecipeMap();
+
+        if (aList.contains(aTileEntity)) return false;
+        if (!aList.add(aTileEntity)) return false;
+        if (aTileEntity instanceof IMetaTileEntity mte) addIfSmartInput(mte);
+        return true;
+    }
+
     @Override
     public boolean addToMachineList(final IGregTechTileEntity aTileEntity, final int aBaseCasingIndex) {
+        if (aTileEntity == null) return false;
+        final IMetaTileEntity aMetaTileEntity = aTileEntity.getMetaTileEntity();
+        if (aMetaTileEntity == null) return false;
+
+        // 2.9+: steam hatches/busses have dedicated registration paths in GT5U.
+        if (addSteamInputFluidHatch(aTileEntity, aBaseCasingIndex)) return true;
+        if (addSteamBusInput(aTileEntity, aBaseCasingIndex)) return true;
+        if (addSteamBusOutput(aTileEntity, aBaseCasingIndex)) return true;
+
         return super.addToMachineList(aTileEntity, aBaseCasingIndex)
             || addExoticEnergyInputToMachineList(aTileEntity, aBaseCasingIndex);
+    }
+
+    public boolean addSteamBusInput(final IGregTechTileEntity aTileEntity, final int aBaseCasingIndex) {
+        if (aTileEntity == null) return false;
+        final IMetaTileEntity aMetaTileEntity = aTileEntity.getMetaTileEntity();
+        if (aMetaTileEntity == null) return false;
+
+        if (aMetaTileEntity instanceof MTEHatchSteamBusInput steamBus) {
+            this.resetRecipeMapForHatch(aTileEntity, getRecipeMap());
+            return addToMachineListInternal(mSteamInputs, steamBus, aBaseCasingIndex);
+        }
+        return false;
+    }
+
+    public boolean addSteamBusOutput(final IGregTechTileEntity aTileEntity, final int aBaseCasingIndex) {
+        if (aTileEntity == null) return false;
+        final IMetaTileEntity aMetaTileEntity = aTileEntity.getMetaTileEntity();
+        if (aMetaTileEntity == null) return false;
+
+        if (aMetaTileEntity instanceof MTEHatchSteamBusOutput steamBus) {
+            return addToMachineListInternal(mSteamOutputs, steamBus, aBaseCasingIndex);
+        }
+        return false;
+    }
+
+    public boolean addSteamInputFluidHatch(final IGregTechTileEntity aTileEntity, final int aBaseCasingIndex) {
+        if (aTileEntity == null) return false;
+        final IMetaTileEntity aMetaTileEntity = aTileEntity.getMetaTileEntity();
+        if (aMetaTileEntity == null) return false;
+
+        if (aMetaTileEntity instanceof MTEHatchCustomFluidBase fluidHatch
+            && Materials.Steam.mGas.equals(fluidHatch.mLockedFluid)
+            && mSteamInputFluids.isEmpty()) {
+            return addToMachineListInternal(mSteamInputFluids, fluidHatch, aBaseCasingIndex);
+        }
+        return false;
     }
 
     /*
@@ -533,7 +601,7 @@ public abstract class OTHSteamMultiBase<T extends OTHSteamMultiBase<T>> extends 
      */
 
     protected static <T extends OTHSteamMultiBase<T>> HatchElementBuilder<T> buildSteamInput(Class<T> typeToken) {
-        return buildHatchAdder(typeToken).adder(OTHSteamMultiBase::addToMachineList)
+        return buildHatchAdder(typeToken).adder(OTHSteamMultiBase::addSteamInputFluidHatch)
             .hatchIds(31040)
             .shouldReject(t -> !t.mSteamInputFluids.isEmpty());
     }
@@ -560,6 +628,11 @@ public abstract class OTHSteamMultiBase<T extends OTHSteamMultiBase<T>> extends 
             public long count(OTHSteamMultiBase<?> t) {
                 return t.mSteamInputs.size();
             }
+
+            @Override
+            public IGTHatchAdder<? super OTHSteamMultiBase<?>> adder() {
+                return OTHSteamMultiBase::addSteamBusInput;
+            }
         },
         OutputBus_Steam {
 
@@ -572,12 +645,12 @@ public abstract class OTHSteamMultiBase<T extends OTHSteamMultiBase<T>> extends 
             public long count(OTHSteamMultiBase<?> t) {
                 return t.mSteamOutputs.size();
             }
-        },;
 
-        @Override
-        public IGTHatchAdder<? super OTHSteamMultiBase<?>> adder() {
-            return OTHSteamMultiBase::addToMachineList;
-        }
+            @Override
+            public IGTHatchAdder<? super OTHSteamMultiBase<?>> adder() {
+                return OTHSteamMultiBase::addSteamBusOutput;
+            }
+        };
     }
 
     @Override
