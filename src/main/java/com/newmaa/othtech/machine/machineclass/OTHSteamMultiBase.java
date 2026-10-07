@@ -299,13 +299,15 @@ public abstract class OTHSteamMultiBase<T extends OTHSteamMultiBase<T>> extends 
     public ArrayList<FluidStack> getStoredFluidsForColor(Optional<Byte> color) {
         ArrayList<FluidStack> rList = new ArrayList<>();
         for (MTEHatchCustomFluidBase tHatch : validMTEList(mSteamInputFluids)) {
-            byte hatchColor = tHatch.getBaseMetaTileEntity().getColorization();
+            byte hatchColor = tHatch.getBaseMetaTileEntity()
+                .getColorization();
             if (color.isPresent() && hatchColor != -1 && hatchColor != color.get()) continue;
             if (tHatch.getFillableStack() != null) rList.add(tHatch.getFillableStack());
         }
         for (MTEHatchInput hatch : this.mInputHatches) {
             if (hatch.getFillableStack() == null) continue;
-            byte hatchColor = hatch.getBaseMetaTileEntity().getColorization();
+            byte hatchColor = hatch.getBaseMetaTileEntity()
+                .getColorization();
             if (color.isPresent() && hatchColor != -1 && hatchColor != color.get()) continue;
             rList.add(hatch.getFillableStack());
         }
@@ -317,21 +319,27 @@ public abstract class OTHSteamMultiBase<T extends OTHSteamMultiBase<T>> extends 
         ArrayList<ItemStack> rList = new ArrayList<>();
 
         for (MTEHatchInputBus tHatch : validMTEList(mInputBusses)) {
-            byte hatchColor = tHatch.getBaseMetaTileEntity().getColorization();
+            byte hatchColor = tHatch.getBaseMetaTileEntity()
+                .getColorization();
             if (color.isPresent() && hatchColor != -1 && hatchColor != color.get()) continue;
-            for (int i = tHatch.getBaseMetaTileEntity().getSizeInventory() - 1; i >= 0; i--) {
-                ItemStack stack = tHatch.getBaseMetaTileEntity().getStackInSlot(i);
+            for (int i = tHatch.getBaseMetaTileEntity()
+                .getSizeInventory() - 1; i >= 0; i--) {
+                ItemStack stack = tHatch.getBaseMetaTileEntity()
+                    .getStackInSlot(i);
                 if (stack != null) rList.add(stack);
             }
         }
 
         RecipeMap<?> recipeMap = getRecipeMap();
         for (MTEHatchSteamBusInput tHatch : validMTEList(mSteamInputs)) {
-            byte hatchColor = tHatch.getBaseMetaTileEntity().getColorization();
+            byte hatchColor = tHatch.getBaseMetaTileEntity()
+                .getColorization();
             if (color.isPresent() && hatchColor != -1 && hatchColor != color.get()) continue;
             if (recipeMap != null) tHatch.mRecipeMap = recipeMap;
-            for (int i = tHatch.getBaseMetaTileEntity().getSizeInventory() - 1; i >= 0; i--) {
-                ItemStack stack = tHatch.getBaseMetaTileEntity().getStackInSlot(i);
+            for (int i = tHatch.getBaseMetaTileEntity()
+                .getSizeInventory() - 1; i >= 0; i--) {
+                ItemStack stack = tHatch.getBaseMetaTileEntity()
+                    .getStackInSlot(i);
                 if (stack != null) rList.add(stack);
             }
         }
@@ -513,10 +521,8 @@ public abstract class OTHSteamMultiBase<T extends OTHSteamMultiBase<T>> extends 
                 .setPos(-48, -8));
 
         builder.widget(
-            new DrawableWidget()
-                .setDrawable(
-                    new CircularGaugeDrawable(
-                        () -> uiSteamCapacity <= 0 ? 0F : (float) uiSteamStored / uiSteamCapacity))
+            new DrawableWidget().setDrawable(
+                new CircularGaugeDrawable(() -> uiSteamCapacity <= 0 ? 0F : (float) uiSteamStored / uiSteamCapacity))
                 .setPos(-48 + 21, -8 + 21)
                 .setSize(18, 4));
     }
