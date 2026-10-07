@@ -225,7 +225,7 @@ public abstract class OTHSteamMultiBase<T extends OTHSteamMultiBase<T>> extends 
         if (aMetaTileEntity == null) return false;
 
         if (aMetaTileEntity instanceof MTEHatchSteamBusInput steamBus) {
-            this.resetRecipeMapForHatch(aTileEntity, getRecipeMap());
+            this.resetRecipeMapForHatch(steamBus, getRecipeMap());
             return addToMachineListInternal(mSteamInputs, steamBus, aBaseCasingIndex);
         }
         return false;
