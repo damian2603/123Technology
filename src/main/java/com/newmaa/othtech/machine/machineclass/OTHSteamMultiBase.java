@@ -31,6 +31,7 @@ import gregtech.api.enums.TieredVariant;
 import gregtech.api.gui.modularui.CircularGaugeDrawable;
 import gregtech.api.gui.modularui.GTUITextures;
 import gregtech.api.interfaces.IHatchElement;
+import gregtech.api.interfaces.IOutputBus;
 import gregtech.api.interfaces.ITexture;
 import gregtech.api.interfaces.metatileentity.IMetaTileEntity;
 import gregtech.api.interfaces.tileentity.IGregTechTileEntity;
@@ -40,6 +41,8 @@ import gregtech.api.metatileentity.implementations.MTEBasicMachine;
 import gregtech.api.metatileentity.implementations.MTEHatch;
 import gregtech.api.metatileentity.implementations.MTEHatchInput;
 import gregtech.api.metatileentity.implementations.MTEHatchInputBus;
+import gregtech.api.metatileentity.implementations.MTEHatchOutputBus;
+import gregtech.api.metatileentity.implementations.MTEHatchVoidBus;
 import gregtech.api.objects.overclockdescriber.OverclockDescriber;
 import gregtech.api.objects.overclockdescriber.SteamOverclockDescriber;
 import gregtech.api.recipe.RecipeMap;
@@ -65,7 +68,7 @@ public abstract class OTHSteamMultiBase<T extends OTHSteamMultiBase<T>> extends 
     private final OverclockDescriber overclockDescriber;
 
     public ArrayList<MTEHatchSteamBusInput> mSteamInputs = new ArrayList<>();
-    public ArrayList<MTEHatchSteamBusOutput> mSteamOutputs = new ArrayList<>();
+    public ArrayList<MTEHatchOutputBus> mSteamOutputs = new ArrayList<>();
     public ArrayList<MTEHatchCustomFluidBase> mSteamInputFluids = new ArrayList<>();
 
     public OTHSteamMultiBase(String aName) {
@@ -106,7 +109,6 @@ public abstract class OTHSteamMultiBase<T extends OTHSteamMultiBase<T>> extends 
     @Override
     protected void setProcessingLogicPower(ProcessingLogic logic) {
         logic.setAvailableVoltage(V[getTierRecipes()]);
-        // We need to trick the GT_ParallelHelper we have enough amps for all recipe parallels.
         logic.setAvailableAmperage(getMaxParallelRecipes());
         logic.setAmperageOC(false);
         logic.setMaxTierSkips(0);
@@ -166,14 +168,10 @@ public abstract class OTHSteamMultiBase<T extends OTHSteamMultiBase<T>> extends 
         super.onPostTick(aBaseMetaTileEntity, aTick);
     }
 
-    /**
-     * Called every tick the Machine runs
-     */
     @Override
     public boolean onRunningTick(ItemStack aStack) {
         if (lEUt < 0) {
             long aSteamVal = ((-lEUt * 10000) / Math.max(1000, mEfficiency));
-            // Logger.INFO("Trying to drain "+aSteamVal+" steam per tick.");
             if (!tryConsumeSteam((int) aSteamVal)) {
                 stopMachine(ShutDownReasonRegistry.POWER_LOSS);
                 return false;
@@ -182,11 +180,6 @@ public abstract class OTHSteamMultiBase<T extends OTHSteamMultiBase<T>> extends 
         return true;
     }
 
-    /**
-     * GTNH 2.9 split steam hatch registration out of the generic multiblock hatch path.
-     * Keep the same bookkeeping as MTESteamMultiBlockBase so custom steam hatches are
-     * actually visible to recipe/steam-consumption logic.
-     */
     public <E> boolean addToMachineListInternal(ArrayList<E> aList, final E aTileEntity, final int aBaseCasingIndex) {
         if (aTileEntity == null) return false;
 
@@ -195,8 +188,11 @@ public abstract class OTHSteamMultiBase<T extends OTHSteamMultiBase<T>> extends 
             mteHatch.updateCraftingIcon(this.getMachineCraftingIcon());
         }
 
-        if (aTileEntity instanceof MTEHatchInput hatch) hatch.mRecipeMap = getRecipeMap();
-        if (aTileEntity instanceof MTEHatchInputBus hatch) hatch.mRecipeMap = getRecipeMap();
+        RecipeMap<?> recipeMap = getRecipeMap();
+        if (recipeMap != null) {
+            if (aTileEntity instanceof MTEHatchInput hatch) hatch.mRecipeMap = recipeMap;
+            if (aTileEntity instanceof MTEHatchInputBus hatch) hatch.mRecipeMap = recipeMap;
+        }
 
         if (aList.contains(aTileEntity)) return false;
         if (!aList.add(aTileEntity)) return false;
@@ -210,7 +206,6 @@ public abstract class OTHSteamMultiBase<T extends OTHSteamMultiBase<T>> extends 
         final IMetaTileEntity aMetaTileEntity = aTileEntity.getMetaTileEntity();
         if (aMetaTileEntity == null) return false;
 
-        // 2.9+: steam hatches/busses have dedicated registration paths in GT5U.
         if (addSteamInputFluidHatch(aTileEntity, aBaseCasingIndex)) return true;
         if (addSteamBusInput(aTileEntity, aBaseCasingIndex)) return true;
         if (addSteamBusOutput(aTileEntity, aBaseCasingIndex)) return true;
@@ -225,7 +220,8 @@ public abstract class OTHSteamMultiBase<T extends OTHSteamMultiBase<T>> extends 
         if (aMetaTileEntity == null) return false;
 
         if (aMetaTileEntity instanceof MTEHatchSteamBusInput steamBus) {
-            this.resetRecipeMapForHatch(steamBus, getRecipeMap());
+            RecipeMap<?> recipeMap = getRecipeMap();
+            if (recipeMap != null) this.resetRecipeMapForHatch(steamBus, recipeMap);
             return addToMachineListInternal(mSteamInputs, steamBus, aBaseCasingIndex);
         }
         return false;
@@ -236,8 +232,8 @@ public abstract class OTHSteamMultiBase<T extends OTHSteamMultiBase<T>> extends 
         final IMetaTileEntity aMetaTileEntity = aTileEntity.getMetaTileEntity();
         if (aMetaTileEntity == null) return false;
 
-        if (aMetaTileEntity instanceof MTEHatchSteamBusOutput steamBus) {
-            return addToMachineListInternal(mSteamOutputs, steamBus, aBaseCasingIndex);
+        if (aMetaTileEntity instanceof MTEHatchSteamBusOutput || aMetaTileEntity instanceof MTEHatchVoidBus) {
+            return addToMachineListInternal(mSteamOutputs, (MTEHatchOutputBus) aMetaTileEntity, aBaseCasingIndex);
         }
         return false;
     }
@@ -254,10 +250,6 @@ public abstract class OTHSteamMultiBase<T extends OTHSteamMultiBase<T>> extends 
         }
         return false;
     }
-
-    /*
-     * Handle I/O with custom hatches
-     */
 
     @Override
     public boolean depleteInput(FluidStack aLiquid) {
@@ -280,33 +272,23 @@ public abstract class OTHSteamMultiBase<T extends OTHSteamMultiBase<T>> extends 
         if (GTUtility.isStackInvalid(aStack)) return false;
         FluidStack aLiquid = GTUtility.getFluidForFilledItem(aStack, true);
         if (aLiquid != null) return depleteInput(aLiquid);
+
         for (MTEHatchCustomFluidBase tHatch : validMTEList(mSteamInputFluids)) {
-            if (GTUtility.areStacksEqual(
-                aStack,
-                tHatch.getBaseMetaTileEntity()
-                    .getStackInSlot(0))) {
-                if (tHatch.getBaseMetaTileEntity()
-                    .getStackInSlot(0).stackSize >= aStack.stackSize) {
-                    tHatch.getBaseMetaTileEntity()
-                        .decrStackSize(0, aStack.stackSize);
-                    return true;
-                }
+            final IGregTechTileEntity baseMetaTileEntity = tHatch.getBaseMetaTileEntity();
+            ItemStack stackInSlot = baseMetaTileEntity.getStackInSlot(0);
+            if (GTUtility.areStacksEqual(aStack, stackInSlot) && stackInSlot.stackSize >= aStack.stackSize) {
+                baseMetaTileEntity.decrStackSize(0, aStack.stackSize);
+                return true;
             }
         }
+
         for (MTEHatchSteamBusInput tHatch : validMTEList(mSteamInputs)) {
-            tHatch.mRecipeMap = getRecipeMap();
-            for (int i = tHatch.getBaseMetaTileEntity()
-                .getSizeInventory() - 1; i >= 0; i--) {
-                if (GTUtility.areStacksEqual(
-                    aStack,
-                    tHatch.getBaseMetaTileEntity()
-                        .getStackInSlot(i))) {
-                    if (tHatch.getBaseMetaTileEntity()
-                        .getStackInSlot(0).stackSize >= aStack.stackSize) {
-                        tHatch.getBaseMetaTileEntity()
-                            .decrStackSize(0, aStack.stackSize);
-                        return true;
-                    }
+            final IGregTechTileEntity baseMetaTileEntity = tHatch.getBaseMetaTileEntity();
+            for (int i = baseMetaTileEntity.getSizeInventory() - 1; i >= 0; i--) {
+                ItemStack stackInSlot = baseMetaTileEntity.getStackInSlot(i);
+                if (GTUtility.areStacksEqual(aStack, stackInSlot) && stackInSlot.stackSize >= aStack.stackSize) {
+                    baseMetaTileEntity.decrStackSize(i, aStack.stackSize);
+                    return true;
                 }
             }
         }
@@ -317,16 +299,13 @@ public abstract class OTHSteamMultiBase<T extends OTHSteamMultiBase<T>> extends 
     public ArrayList<FluidStack> getStoredFluidsForColor(Optional<Byte> color) {
         ArrayList<FluidStack> rList = new ArrayList<>();
         for (MTEHatchCustomFluidBase tHatch : validMTEList(mSteamInputFluids)) {
-            byte hatchColor = tHatch.getBaseMetaTileEntity()
-                .getColorization();
+            byte hatchColor = tHatch.getBaseMetaTileEntity().getColorization();
             if (color.isPresent() && hatchColor != -1 && hatchColor != color.get()) continue;
-            if (tHatch.getFillableStack() != null) {
-                rList.add(tHatch.getFillableStack());
-            }
+            if (tHatch.getFillableStack() != null) rList.add(tHatch.getFillableStack());
         }
-        for (MTEHatchInput hatch : this.mInputHatches) if (hatch.getFillableStack() != null) {
-            byte hatchColor = hatch.getBaseMetaTileEntity()
-                .getColorization();
+        for (MTEHatchInput hatch : this.mInputHatches) {
+            if (hatch.getFillableStack() == null) continue;
+            byte hatchColor = hatch.getBaseMetaTileEntity().getColorization();
             if (color.isPresent() && hatchColor != -1 && hatchColor != color.get()) continue;
             rList.add(hatch.getFillableStack());
         }
@@ -336,22 +315,36 @@ public abstract class OTHSteamMultiBase<T extends OTHSteamMultiBase<T>> extends 
     @Override
     public ArrayList<ItemStack> getStoredInputsForColor(Optional<Byte> color) {
         ArrayList<ItemStack> rList = new ArrayList<>();
-        for (MTEHatchSteamBusInput tHatch : validMTEList(mSteamInputs)) {
-            byte hatchColor = tHatch.getBaseMetaTileEntity()
-                .getColorization();
+
+        for (MTEHatchInputBus tHatch : validMTEList(mInputBusses)) {
+            byte hatchColor = tHatch.getBaseMetaTileEntity().getColorization();
             if (color.isPresent() && hatchColor != -1 && hatchColor != color.get()) continue;
-            tHatch.mRecipeMap = getRecipeMap();
-            for (int i = tHatch.getBaseMetaTileEntity()
-                .getSizeInventory() - 1; i >= 0; i--) {
-                if (tHatch.getBaseMetaTileEntity()
-                    .getStackInSlot(i) != null) {
-                    rList.add(
-                        tHatch.getBaseMetaTileEntity()
-                            .getStackInSlot(i));
-                }
+            for (int i = tHatch.getBaseMetaTileEntity().getSizeInventory() - 1; i >= 0; i--) {
+                ItemStack stack = tHatch.getBaseMetaTileEntity().getStackInSlot(i);
+                if (stack != null) rList.add(stack);
+            }
+        }
+
+        RecipeMap<?> recipeMap = getRecipeMap();
+        for (MTEHatchSteamBusInput tHatch : validMTEList(mSteamInputs)) {
+            byte hatchColor = tHatch.getBaseMetaTileEntity().getColorization();
+            if (color.isPresent() && hatchColor != -1 && hatchColor != color.get()) continue;
+            if (recipeMap != null) tHatch.mRecipeMap = recipeMap;
+            for (int i = tHatch.getBaseMetaTileEntity().getSizeInventory() - 1; i >= 0; i--) {
+                ItemStack stack = tHatch.getBaseMetaTileEntity().getStackInSlot(i);
+                if (stack != null) rList.add(stack);
             }
         }
         return rList;
+    }
+
+    @Override
+    public List<IOutputBus> getOutputBusses() {
+        List<IOutputBus> output = new ArrayList<>(super.getOutputBusses());
+        for (MTEHatchOutputBus outputBus : mSteamOutputs) {
+            if (outputBus.isValid() && !output.contains(outputBus)) output.add(outputBus);
+        }
+        return output;
     }
 
     @Override
@@ -364,6 +357,11 @@ public abstract class OTHSteamMultiBase<T extends OTHSteamMultiBase<T>> extends 
     @Override
     public boolean supportsBatchMode() {
         return false;
+    }
+
+    @Override
+    public boolean supportsVoidProtection() {
+        return true;
     }
 
     @Override
@@ -385,7 +383,6 @@ public abstract class OTHSteamMultiBase<T extends OTHSteamMultiBase<T>> extends 
 
         for (var bus : mInputBusses) hatchColors |= (short) (1 << bus.getColor());
         for (var hatch : mInputHatches) hatchColors |= (short) (1 << hatch.getColor());
-
         for (var bus : mSteamInputs) hatchColors |= (short) (1 << bus.getColor());
         for (var hatch : mSteamInputFluids) hatchColors |= (short) (1 << hatch.getColor());
 
@@ -397,43 +394,29 @@ public abstract class OTHSteamMultiBase<T extends OTHSteamMultiBase<T>> extends 
     public CheckRecipeResult doCheckRecipe() {
         CheckRecipeResult result = CheckRecipeResultRegistry.NO_RECIPE;
 
-        // check crafting input hatches first
         for (IDualInputHatch dualInputHatch : mDualInputHatches) {
             ItemStack[] sharedItems = dualInputHatch.getSharedItems();
             for (var it = dualInputHatch.inventories(); it.hasNext();) {
                 IDualInputInventory slot = it.next();
 
                 if (!slot.isEmpty()) {
-                    // try to cache the possible recipes from pattern
                     if (slot instanceof IDualInputInventoryWithPattern withPattern) {
-                        if (!processingLogic.tryCachePossibleRecipesFromPattern(withPattern)) {
-                            // move on to next slots if it returns false, which means there is no possible recipes with
-                            // given pattern.
-                            continue;
-                        }
+                        if (!processingLogic.tryCachePossibleRecipesFromPattern(withPattern)) continue;
                     }
 
                     processingLogic.setInputItems(ArrayUtils.addAll(sharedItems, slot.getItemInputs()));
                     processingLogic.setInputFluids(slot.getFluidInputs());
 
                     CheckRecipeResult foundResult = processingLogic.process();
-                    if (foundResult.wasSuccessful()) {
-                        return foundResult;
-                    }
-                    if (foundResult != CheckRecipeResultRegistry.NO_RECIPE) {
-                        // Recipe failed in interesting way, so remember that and continue searching
-                        result = foundResult;
-                    }
+                    if (foundResult.wasSuccessful()) return foundResult;
+                    if (foundResult != CheckRecipeResultRegistry.NO_RECIPE) result = foundResult;
                 }
             }
         }
 
         result = checkRecipeForCustomHatches(result);
-        if (result.wasSuccessful()) {
-            return result;
-        }
+        if (result.wasSuccessful()) return result;
 
-        // Use hatch colors if any; fallback to color 1 otherwise.
         short hatchColors = getHatchColors();
         boolean doColorChecking = hatchColors != 0;
         if (!doColorChecking) hatchColors = 0b1;
@@ -445,7 +428,6 @@ public abstract class OTHSteamMultiBase<T extends OTHSteamMultiBase<T>> extends 
                 if (mInputBusses.isEmpty() && mSteamInputs.isEmpty()) {
                     CheckRecipeResult foundResult = processingLogic.process();
                     if (foundResult.wasSuccessful()) return foundResult;
-                    // Recipe failed in interesting way, so remember that and continue searching
                     if (foundResult != CheckRecipeResultRegistry.NO_RECIPE) result = foundResult;
                 } else {
                     for (MTEHatchInputBus bus : mInputBusses) {
@@ -463,7 +445,6 @@ public abstract class OTHSteamMultiBase<T extends OTHSteamMultiBase<T>> extends 
                         processingLogic.setInputItems(inputItems);
                         CheckRecipeResult foundResult = processingLogic.process();
                         if (foundResult.wasSuccessful()) return foundResult;
-                        // Recipe failed in interesting way, so remember that and continue searching
                         if (foundResult != CheckRecipeResultRegistry.NO_RECIPE) result = foundResult;
                     }
                     for (MTEHatchSteamBusInput bus : mSteamInputs) {
@@ -480,7 +461,6 @@ public abstract class OTHSteamMultiBase<T extends OTHSteamMultiBase<T>> extends 
                         processingLogic.setInputItems(inputItems);
                         CheckRecipeResult foundResult = processingLogic.process();
                         if (foundResult.wasSuccessful()) return foundResult;
-                        // Recipe failed in interesting way, so remember that and continue searching
                         if (foundResult != CheckRecipeResultRegistry.NO_RECIPE) result = foundResult;
                     }
                 }
@@ -492,7 +472,6 @@ public abstract class OTHSteamMultiBase<T extends OTHSteamMultiBase<T>> extends 
                 processingLogic.setInputItems(inputItems);
                 CheckRecipeResult foundResult = processingLogic.process();
                 if (foundResult.wasSuccessful()) return foundResult;
-                // Recipe failed in interesting way, so remember that
                 if (foundResult != CheckRecipeResultRegistry.NO_RECIPE) result = foundResult;
             }
         }
@@ -503,16 +482,11 @@ public abstract class OTHSteamMultiBase<T extends OTHSteamMultiBase<T>> extends 
     public boolean resetRecipeMapForAllInputHatches(RecipeMap<?> aMap) {
         boolean ret = super.resetRecipeMapForAllInputHatches(aMap);
         for (MTEHatchSteamBusInput hatch : mSteamInputs) {
-            if (resetRecipeMapForHatch(hatch, aMap)) {
-                ret = true;
-            }
+            if (resetRecipeMapForHatch(hatch, aMap)) ret = true;
         }
         for (MTEHatchInput g : this.mInputHatches) {
-            if (resetRecipeMapForHatch(g, aMap)) {
-                ret = true;
-            }
+            if (resetRecipeMapForHatch(g, aMap)) ret = true;
         }
-
         return ret;
     }
 
@@ -539,66 +513,13 @@ public abstract class OTHSteamMultiBase<T extends OTHSteamMultiBase<T>> extends 
                 .setPos(-48, -8));
 
         builder.widget(
-            new DrawableWidget().setDrawable(new CircularGaugeDrawable(() -> (float) uiSteamStored / uiSteamCapacity))
+            new DrawableWidget()
+                .setDrawable(
+                    new CircularGaugeDrawable(
+                        () -> uiSteamCapacity <= 0 ? 0F : (float) uiSteamStored / uiSteamCapacity))
                 .setPos(-48 + 21, -8 + 21)
                 .setSize(18, 4));
     }
-
-    /*
-     * @Override
-     * public void getWailaBody(ItemStack itemStack, List<String> currentTip, IWailaDataAccessor accessor,
-     * IWailaConfigHandler config) {
-     * final NBTTagCompound tag = accessor.getNBTData();
-     * if (tag.getBoolean("incompleteStructure")) {
-     * currentTip
-     * .add(RED + StatCollector.translateToLocalFormatted("GT5U.waila.multiblock.status.incomplete") + RESET);
-     * }
-     * String efficiency = RESET + StatCollector
-     * .translateToLocalFormatted("GT5U.waila.multiblock.status.efficiency", tag.getFloat("efficiency"));
-     * if (tag.getBoolean("hasProblems")) {
-     * currentTip
-     * .add(RED + StatCollector.translateToLocal("GT5U.waila.multiblock.status.has_problem") + efficiency);
-     * } else if (!tag.getBoolean("incompleteStructure")) {
-     * currentTip
-     * .add(GREEN + StatCollector.translateToLocal("GT5U.waila.multiblock.status.running_fine") + efficiency);
-     * }
-     * boolean isActive = tag.getBoolean("isActive");
-     * if (isActive) {
-     * long actualEnergyUsage = tag.getLong("energyUsage");
-     * if (actualEnergyUsage > 0) {
-     * currentTip.add(
-     * StatCollector
-     * .translateToLocalFormatted("GTPP.waila.steam.use", formatNumbers(actualEnergyUsage * 20)));
-     * }
-     * }
-     * currentTip.add(
-     * GTWaila.getMachineProgressString(
-     * isActive,
-     * tag.getBoolean("isAllowedToWork"),
-     * tag.getInteger("maxProgress"),
-     * tag.getInteger("progress")));
-     * // Show ns on the tooltip
-     * if (GTMod.proxy.wailaAverageNS && tag.hasKey("averageNS")) {
-     * int tAverageTime = tag.getInteger("averageNS");
-     * currentTip.add(
-     * StatCollector
-     * .translateToLocalFormatted("GT5U.waila.multiblock.status.cpu_load", formatNumbers(tAverageTime)));
-     * }
-     * super.getMTEWailaBody(itemStack, currentTip, accessor, config);
-     * }
-     * protected static String getSteamTierTextForWaila(NBTTagCompound tag) {
-     * int tierMachine = tag.getInteger("tierMachine");
-     * String tierMachineText;
-     * if (tierMachine == 1) {
-     * tierMachineText = "Basic";
-     * } else if (tierMachine == 2) {
-     * tierMachineText = "High Pressure";
-     * } else {
-     * tierMachineText = String.valueOf(tierMachine);
-     * }
-     * return tierMachineText;
-     * }
-     */
 
     protected static <T extends OTHSteamMultiBase<T>> HatchElementBuilder<T> buildSteamInput(Class<T> typeToken) {
         return buildHatchAdder(typeToken).adder(OTHSteamMultiBase::addSteamInputFluidHatch)
